@@ -1,33 +1,38 @@
 ```markdown
 # Relatório de Execução — P0 (Gerador de Flashcards)
 
-## 1. Evolução por Nível
-- **Básico:** Construção do fluxo completo de chamada ao LLM via terminal, isolamento de ambiente (`venv`), proteção de credenciais (`.env` e `.gitignore`), validação de entrada vazia e tratamento de exceções na comunicação com a API.
-- **Intermediário:** *Em desenvolvimento.*
-- **Avançado:** *Em desenvolvimento.*
-
 ## 2. Decisões Principais
 
 | Decisão Tomada | Alternativa Considerada | Justificativa |
-| :--- | :--- | :--- |
-| Uso do SDK `google-genai` com modelo `gemini-3.8-flash` | Biblioteca antiga `google-generativeai` | A biblioteca antiga apresentou aviso de descontinuação (*deprecated*); o novo SDK garante compatibilidade atual. |
-| Validação de entrada com `.strip()` antes da chamada à API | Enviar qualquer texto direto para o LLM | Evita consumo desnecessário de tokens e requisições inúteis quando o usuário envia texto vazio ou apenas espaços. |
-| Tratamento de erros com `try/except` e `sys.exit(1)` | Deixar o *traceback* padrão do Python | Garante mensagens amigáveis ao usuário em caso de queda de internet ou chave inválida, sem quebrar abruptamente. |
+|:---|:---|:---|
+| **SDK `google-genai` + `gemini-3.5-flash-lite` com *streaming*** | `gemini-3.8-flash` sem *streaming* ou `google-generativeai` | A biblioteca antiga está descontinuada e o `3.8-flash` apresentou alta latência e erro `503`. A versão `-lite` com *streaming* tornou as respostas quase instantâneas. |
+| **Validação de entrada com `.strip()`** | Enviar qualquer texto diretamente para a API | Evita o consumo desnecessário de tokens e requisições inúteis quando o usuário envia um texto vazio ou contendo apenas espaços. |
+| **Tratamento de erros com `try/except`** | Deixar o *traceback* padrão do Python | Exibe mensagens amigáveis em caso de falha na conexão, chave inválida ou erro da API, sem interromper inesperadamente o programa. |
+| **Loop contínuo com `while True` e comando `'sair'`** | Encerrar o script após cada geração | Melhora a usabilidade no terminal, deixando o gerador pronto para receber novos textos em sequência sem precisar executar `python3 gerador.py` novamente. |
 
 ## 3. Testes e Resultados
 
-| Teste | Entrada ou Situação | Resultado Esperado | Resultado Obtido |
-| :--- | :--- | :--- | :--- |
-| Geração com sucesso | Parágrafo de slide sobre conteúdo técnico | Retorno de até 3 flashcards no formato Pergunta/Resposta | Passou (flashcards gerados corretamente) |
-| Entrada vazia | Pressionar `Enter` sem digitar texto | Exibir erro de texto vazio e encerrar sem chamar a API | Passou |
-| Falha de credencial | Arquivo `.env` sem `GEMINI_API_KEY` | Exibir aviso de chave não encontrada e encerrar | Passou |
-| Falha de conexão | Execução com Wi-Fi desligado | Capturar exceção no `try/except` e exibir mensagem amigável | Passou |
+| Teste | Entrada / Situação | Resultado Esperado | Status |
+|:---|:---|:---|:---:|
+| **Entrada vazia** | Pressionar `Enter` sem texto | Exibir erro de texto vazio e solicitar uma nova entrada, sem chamar a API. | ✅ Passou |
+| **Falha de credencial** | `.env` sem `GEMINI_API_KEY` | Exibir aviso de chave não encontrada e encerrar com segurança. | ✅ Passou |
+| **Falha de conexão** | Execução com Wi-Fi desligado | Capturar a exceção no `try/except` e exibir uma mensagem amigável. | ✅ Passou |
+| **Instabilidade da API** | Pico de demanda (`503 UNAVAILABLE`) | Capturar a exceção da API e orientar o usuário sem travar o loop. | ✅ Passou |
+| **Texto longo (limite do prompt)** | Envio de texto extenso de slide | Respeitar a regra rígida do prompt (sem gerar 4 flashcards ou mais) | ✅ Passou |
+| **Execução contínua** | Enviar um texto, receber os flashcards, enviar outro e digitar `sair` | Manter o programa pronto para novas entradas e encerrar apenas ao digitar `sair` | ✅ Passou |
 
 ## 4. Falhas e Limitações
-- **O que aconteceu:** Latência acima de 30 segundos para retorno da resposta da API do Gemini, mesmo para textos curtos.
-- **Como foi identificado:** Durante a execução dos testes manuais no terminal no ambiente Linux.
-- **Como foi tratado:** Foi adicionada uma mensagem de feedback (`Processando seus flashcards...`) para indicar que o programa não travou.
-- **Por que permanece:** A investigação de rede (IPv6/retentativas) e a implementação de *streaming* foram priorizadas para os próximos níveis para garantir o cumprimento do prazo do Nível Básico.
+
+- **O que aconteceu:**
+  1. Durante os testes com o modelo `gemini-3.8-flash`, a API apresentou latência acima de 30 segundos e retornou erro `503 UNAVAILABLE` por pico de demanda.
+  2. Ao enviar textos longos, o modelo ignorava o limite inicial ("até 3 flashcards") e chegava a gerar mais de 6 perguntas.
+  3. Na primeira versão, o programa encerrava após uma única resposta, exigindo rodar `python3 gerador.py` novamente para cada novo texto.
+- **Como foi identificado:** Durante testes práticos no terminal com textos reais e extensos de slides.
+- **Como foi tratado:**
+  1. Migrei para o modelo `gemini-3.5-flash-lite` com retorno em *streaming* (`generate_content_stream`).
+  2. Reforcei o prompt com uma regra explícita e restritiva (*"Crie EXATAMENTE 3 flashcards. NUNCA gere mais de 3, mesmo que o texto seja muito longo"*).
+  3. Implementei um laço `while True` com saída controlada pelo comando `'sair'`, deixando o gerador pronto para receber novas entradas continuamente.
+- **Por que permanece:** A dependência de conexão com a internet e eventuais instabilidades externas da API permanecem por ser uma solução em nuvem, mas agora são tratadas com `try/except` sem interromper o loop.
 
 ## 5. Uso de IA no Desenvolvimento
 - **Ferramenta utilizada:** Gemini.
@@ -39,4 +44,4 @@
 ## 6. Reflexão Final
 - **Principal aprendizado:** Como integrar um LLM de forma segura em Python, separando credenciais, isolando dependências e tratando falhas externas.
 - **Competência mais desenvolvida:** Depuração de ambiente Linux/Python (uso de `venv`, caminhos de diretório e leitura de mensagens de erro no terminal).
-- **Aspecto a aprimorar:** Otimização de latência (uso de *streaming*) e maior autonomia na escrita inicial de validações e testes automatizados.
+- **Aspecto a aprimorar:** Maior autonomia na escrita inicial de validações e testes automatizados.
